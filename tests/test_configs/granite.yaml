@@ -1,0 +1,12 @@
+model:
+  type: codehelm.models.huggingface.HuggingFaceModel
+  model_config: 
+    pretrained_model_name_or_path: "ibm-granite/granite-4.2-8b"
+    device: "auto"
+num_samples:
+  10
+dataset: "data/dataset_qiskit_test_human_eval_small.json"
+result_path:
+  "granite-qiskit"
+verbose:
+  True

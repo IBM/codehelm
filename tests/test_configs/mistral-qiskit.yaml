@@ -1,0 +1,13 @@
+model:
+  type: codehelm.models.huggingface.HuggingFaceModel
+  model_config: 
+    pretrained_model_name_or_path: "Qiskit/mistral-small-3.2-24b-qiskit"
+    device: "auto"
+num_samples:
+  10
+dataset: "tests/test_data/dataset_qiskit_test_human_eval_small.json"
+test_format: "human_eval"
+result_path:
+  "mistral-qiskit"
+verbose:
+  True

@@ -1,0 +1,14 @@
+orchestration:
+  type: codehelm.orchestration.mellea.MelleaConnector
+model:
+  type: codehelm.models.litellm.LiteLLMModel
+  model_config:
+    model_id: "env:MODEL_ID"
+    api_base: "env:API_BASE"
+    api_key: "env:OPENAI_API_KEY"
+    max_new_tokens: 8192
+num_samples: 10
+dataset: "tests/test_data/dataset_qiskit_test_human_eval_small.json"
+result_path: "litellm-qiskit"
+test_format: "human_eval"
+verbose: True

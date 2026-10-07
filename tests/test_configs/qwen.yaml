@@ -1,0 +1,14 @@
+# small model for quicker local testing
+model:
+  type: codehelm.models.huggingface.HuggingFaceModel
+  model_config: 
+    pretrained_model_name_or_path: "Qwen/Qwen3-0.6B"
+    device: "auto"
+num_samples:
+  10
+dataset: "tests/test_data/dataset_qiskit_test_human_eval_small.json"
+result_path:
+  "mistral-qiskit"
+verbose:
+  True
+test_format: "human_eval"

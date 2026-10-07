@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codehelm"
+requires-python = ">=3.10"
+version = "0.1.0"
+description = "LLM Code Robustness"
+authors = [
+    { name="CodeHelm Team" },
+]
+
+dependencies = [
+    "pydantic==2.13.4",
+    "jsonlines==4.0.0",
+    "pytest==9.1.1",
+    "tqdm==4.70.0",
+    "litellm==1.104.0"
+]
+
+[project.optional-dependencies]
+huggingface = [
+    "accelerate==1.14.0",
+    "torch==2.13.0",
+    "transformers==5.14.1",
+]
+qiskit = [
+    "qiskit>=2.1.0",
+    "qiskit-aer==0.17.0",
+    "qiskit-ibm-runtime==0.45.0",
+    "qiskit_qasm3_import==0.5.0",
+    "pylatexenc==2.10",
+    "qiskit_experiments==0.9.0",
+    "qiskit-ibm-transpiler==0.11.0",
+]
+
+mellea = ["mellea[litellm,hf]"]
+
+[tool.setuptools.package-data]
+codehelm = ["assets/model_config.yaml"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.3",
+    "ty>=0.0.73",
+]
