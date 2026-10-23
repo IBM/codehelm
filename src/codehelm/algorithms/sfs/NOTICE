@@ -1,0 +1,13 @@
+Scattered Forest Search (SFS) Synthesis Port
+
+This product includes software derived from Scattered Forest Search (SFS),
+originally developed at https://github.com/codespace-optimization/sfs
+and licensed under the Apache License, Version 2.0.
+
+Original reference:
+Light, Jonathan, et al. "SFS: Smarter code space search improves LLM inference
+scaling." International Conference on Learning Representations. Vol. 2025. 2025.
+
+Ported and adapted for CodeHelm:
+Copyright IBM Corp. 2026 - 2026
+Licensed under the Apache License, Version 2.0.

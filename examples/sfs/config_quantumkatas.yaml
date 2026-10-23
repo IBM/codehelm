@@ -1,0 +1,25 @@
+# SFS Synthesis example on QuantumKatas format dataset using Ollama
+model:
+  type: codehelm.models.litellm.LiteLLMModel
+  model_config:
+    model_name: "qwen2.5-coder:7b"
+    api_base: "http://localhost:11434/v1"
+    api_key: "ollama"
+    temperature: 0.6
+    max_tokens: 1024
+
+sfs:
+  generator: "qiskit"
+  max_iters: 50
+  num_ideas_per_strategy: 5
+  num_seeds: 3
+  temperature: 0.6
+  use_problem_tests: true
+
+dataset_hf: "Qiskit/Qiskit-QuantumKatas"
+dataset_hf_split: "test"
+dataset_hf_revision: "a84faed31f9e6a51569ef1c6976054090e15bcef"  # pragma: allowlist secret (pinned commit)
+num_samples: 1
+result_path: "results_quantumkatas"
+test_format: "exec"
+verbose: true
