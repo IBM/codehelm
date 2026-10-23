@@ -37,6 +37,8 @@ qiskit = [
 
 mellea = ["mellea[litellm,hf]"]
 
+datasets = ["datasets>=4.0.0"]
+
 [tool.setuptools.package-data]
 codehelm = ["assets/model_config.yaml"]
 

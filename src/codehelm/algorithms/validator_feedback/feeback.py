@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+
 class Feedback:
     """Build a retry prompt by combining the original prompt with unittest failure info."""
 
@@ -12,12 +13,13 @@ class Feedback:
         "Please fix your code and try again.\n\n"
         "Original prompt:\n{prompt}"
     )
+
     def __init__(self):
         self.requires_model = False
 
-    def setup(self, sample_dir):
+    def setup(self, sample_dir: str, **kwargs):
         self._attempt = 0
-    
+
     def repair(self, prompt: str, failure_info: str) -> str:
         """Construct a new prompt that includes the failure feedback.
 
