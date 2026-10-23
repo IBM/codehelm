@@ -22,18 +22,21 @@ from codehelm.algorithms.validator_feedback.mellea_strategy import (
 # The entropy algorithm (codehelm.algorithms.entropy) is not included in this repository,
 # so MelleaEntropyStrategy is imported only if available and its code paths are skipped otherwise.
 try:
-    from codehelm.algorithms.entropy.mellea_strategy import MelleaEntropyStrategy
+    from codehelm.algorithms.entropy.mellea_strategy import (  # ty: ignore[unresolved-import]
+        MelleaEntropyStrategy,
+    )
 except ImportError:
-    MelleaEntropyStrategy = None
+    MelleaEntropyStrategy: Any = None
 
 
 def _is_entropy_strategy(strategy):
-    return MelleaEntropyStrategy is not None and isinstance(strategy, MelleaEntropyStrategy)
+    return MelleaEntropyStrategy is not None and isinstance(
+        strategy, MelleaEntropyStrategy
+    )
 
 
 def _to_mellea_validation_fn(codehelm_validate_fn):
-    """Wrap a codehelm validate(ctx) -> (passed, failure_info) into a Mellea validation_fn.
-    """
+    """Wrap a codehelm validate(ctx) -> (passed, failure_info) into a Mellea validation_fn."""
 
     def _validation_fn(ctx):
         passed, failure_info = codehelm_validate_fn(ctx)
@@ -62,18 +65,20 @@ class MelleaRunnerConfig:
         str | None,
         Field(
             description="Dotted import path of a SamplingStrategy class to use when validators are present, "
-                        "e.g. 'mellea.stdlib.sampling.MultiTurnStrategy'. "
-                        "Defaults to RejectionSamplingStrategy when not set.",
+            "e.g. 'mellea.stdlib.sampling.MultiTurnStrategy'. "
+            "Defaults to RejectionSamplingStrategy when not set.",
         ),
     ] = None
 
 
 class MelleaRunner:
-
     config: MelleaRunnerConfig
 
     def __init__(self, config, results_dir, validator, repair_strategy=None):
-        if config["model"]["type"] in ["huggingface_backend", "codehelm.models.huggingface.HuggingFaceModel"]:
+        if config["model"]["type"] in [
+            "huggingface_backend",
+            "codehelm.models.huggingface.HuggingFaceModel",
+        ]:
             from mellea.backends.huggingface import LocalHFBackend
 
             model_id = config["model"]["model_config"]["pretrained_model_name_or_path"]
@@ -88,7 +93,9 @@ class MelleaRunner:
                 base_url=model_config.get("base_url") or model_config.get("api_base"),
             )
         else:
-            raise ValueError(f"Unkown backend_type: either huggingface_backend or litellm_backend. Got {config['model']['type']}")
+            raise ValueError(
+                f"Unkown backend_type: either huggingface_backend or litellm_backend. Got {config['model']['type']}"
+            )
 
         self.m = MelleaSession(backend=m_backend, ctx=SimpleContext())
         self.results_dir = results_dir
@@ -97,22 +104,25 @@ class MelleaRunner:
 
         self.max_new_tokens = 4000
         self.repair_strategy = repair_strategy
-        if repair_strategy:
-            if _is_entropy_strategy(repair_strategy):
-                model_obj = getattr(m_backend, "model", getattr(m_backend, "_model", None))
-                tokenizer_obj = getattr(m_backend, "tokenizer", getattr(m_backend, "_tokenizer", None))
-                if model_obj is None or tokenizer_obj is None:
-                    raise ValueError(
-                        "MelleaEntropyStrategy requires a local HuggingFace backend with accessible "
-                        "model and tokenizer weights (for logits-based entropy computation). "
-                        f"The configured backend ({type(m_backend).__name__}) does not expose them. "
-                        "Use a HuggingFace model config or remove the repair_strategy argument."
-                    )
-                from codehelm.models.huggingface import HuggingFaceModel
-                repair_strategy._entropy.base_model = HuggingFaceModel.from_model_and_tokenizer(
+        if repair_strategy and _is_entropy_strategy(repair_strategy):
+            model_obj = getattr(m_backend, "model", getattr(m_backend, "_model", None))
+            tokenizer_obj = getattr(
+                m_backend, "tokenizer", getattr(m_backend, "_tokenizer", None)
+            )
+            if model_obj is None or tokenizer_obj is None:
+                raise ValueError(
+                    "MelleaEntropyStrategy requires a local HuggingFace backend with accessible "
+                    "model and tokenizer weights (for logits-based entropy computation). "
+                    f"The configured backend ({type(m_backend).__name__}) does not expose them. "
+                    "Use a HuggingFace model config or remove the repair_strategy argument."
+                )
+            from codehelm.models.huggingface import HuggingFaceModel
+
+            repair_strategy._entropy.base_model = (
+                HuggingFaceModel.from_model_and_tokenizer(
                     model=model_obj, tokenizer=tokenizer_obj
                 )
-
+            )
 
     @classmethod
     def config_model(cls) -> type[MelleaRunnerConfig]:
@@ -125,11 +135,10 @@ class MelleaRunner:
 
     @staticmethod
     def template() -> dict[str, Any]:
-        config_template = MelleaRunnerConfig(
-            type="acodehelm.orchestration.mellea.MelleaConnector",
-            name="mellea",
-        )
-        return config_template
+        return {
+            "type": "codehelm.orchestration.mellea.MelleaConnector",
+            "name": "mellea",
+        }
 
     def parse_data(self, dataset, num_samples=None):
         if dataset.endswith(".jsonl"):
@@ -147,7 +156,7 @@ class MelleaRunner:
             with reader_ctx as reader:
                 self.generate(reader, num_samples)
         else:
-           self.generate(reader_ctx, num_samples)
+            self.generate(reader_ctx, num_samples)
 
     def generate(self, reader, num_samples):
 
@@ -174,7 +183,11 @@ class MelleaRunner:
                 prompt=prompt,
             )
 
-            model_options = {ModelOption.MAX_NEW_TOKENS: self.max_new_tokens} if self.max_new_tokens is not None else None
+            model_options = (
+                {ModelOption.MAX_NEW_TOKENS: self.max_new_tokens}
+                if self.max_new_tokens is not None
+                else None
+            )
 
             # Wire feedback strategy for this sample, so its repair() feeds the
             # validator failures (tests, LintQ) back to the model with the prompt.
@@ -184,12 +197,14 @@ class MelleaRunner:
 
             # Wire entropy strategy for this sample if present.
             if _is_entropy_strategy(self.repair_strategy):
-                entropy_strategy = self.repair_strategy
+                entropy_strategy: Any = self.repair_strategy
                 entropy_strategy._entropy.setup(sample_dir=sample_dir)
                 entropy_strategy._current_prompt = prompt
                 entropy_strategy._current_response_prefix = ""
                 MelleaEntropyStrategy.set_active(entropy_strategy)
-                validation_fn = entropy_strategy.make_validation_fn(self.validator.validate)
+                validation_fn = entropy_strategy.make_validation_fn(
+                    self.validator.validate
+                )
                 active_strategy = entropy_strategy
             else:
                 validation_fn = _to_mellea_validation_fn(self.validator.validate)
@@ -210,5 +225,3 @@ class MelleaRunner:
                 MelleaEntropyStrategy.set_active(None)
 
         return str(result)
-
-

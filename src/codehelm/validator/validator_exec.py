@@ -10,6 +10,7 @@ import os
 import signal
 import threading
 import traceback
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ from codehelm.utils.utils import extract_code_from_llm_response
 from codehelm.validator.validator_base import BaseValidator
 
 EXECUTION_TIMEOUT_SECONDS = 60
+
 
 @contextmanager
 def timeout(seconds: int):
@@ -48,6 +50,7 @@ def timeout(seconds: int):
 
     is_main_thread = threading.current_thread() is threading.main_thread()
     if is_main_thread and hasattr(signal, "SIGALRM"):
+
         def timeout_handler(signum, frame):
             raise TimeoutError(f"Execution exceeded {seconds} seconds")
 
@@ -76,6 +79,7 @@ def timeout(seconds: int):
         finally:
             timer.cancel()
 
+
 class ValidatorExec(BaseValidator):
     def __init__(self):
         self.sample_num = None
@@ -83,7 +87,9 @@ class ValidatorExec(BaseValidator):
         self.entry_point = None
         self.prompt = None
 
-    def setup(self, *, sample_dir, sample_num, test, entry_point, prompt=None, **kwargs):
+    def setup(  # ty: ignore[invalid-method-override]
+        self, *, sample_dir, sample_num, test, entry_point, prompt=None, **kwargs
+    ):
         self._base_sample_dir = Path(sample_dir)
         self.sample_num = sample_num
         self.test = test
@@ -121,16 +127,21 @@ class ValidatorExec(BaseValidator):
         if not isinstance(raw, str):
             raw = str(raw.last_output())
         active_dir = self._active_dir()
+        base_dir = self._base_sample_dir
+        if base_dir is None:
+            raise ValueError("_base_sample_dir not set")
+        result_file = Path(base_dir) / "validator_result.json"
         self._attempt += 1
-        
+
         code = extract_code_from_llm_response(raw)
 
         try:
             # Create executable code by combining prompt, solution, and test.
             # Code-stub prompts (Qiskit HumanEval) are prepended as in the original harness;
             # natural-language prompts (Qiskit HumanEval hard) are not.
-            is_stub = (self.prompt or "").lstrip().startswith(("from ", "import ", "def "))
-            code = (self.prompt if is_stub else "") + "\n" + code + "\n" + self.test
+            prompt = self.prompt or ""
+            is_stub = prompt.lstrip().startswith(("from ", "import ", "def "))
+            code = (prompt if is_stub else "") + "\n" + code + "\n" + (self.test or "")
             # Non-interactive matplotlib: GUI backends fail off the main thread.
             os.environ.setdefault("MPLBACKEND", "Agg")
             Path(os.path.join(active_dir, "code.py")).write_text(code)
@@ -164,16 +175,14 @@ class ValidatorExec(BaseValidator):
 
             _BLOCKED_BUILTINS = {
                 # "open",         # filesystem read/write // needed by qiskitHumanEval/82
-                "exec",         # nested arbitrary code execution
-                "eval",         # expression-level arbitrary execution
-                "compile",      # bytecode compilation (precursor to exec/eval)
-                "breakpoint",   # drops into debugger / pdb shell
-                "input",        # blocks on stdin in CI; not needed by solutions
+                "exec",  # nested arbitrary code execution
+                "eval",  # expression-level arbitrary execution
+                "compile",  # bytecode compilation (precursor to exec/eval)
+                "breakpoint",  # drops into debugger / pdb shell
+                "input",  # blocks on stdin in CI; not needed by solutions
             }
             restricted_builtins = {
-                k: v
-                for k, v in vars(_builtins).items()
-                if k not in _BLOCKED_BUILTINS
+                k: v for k, v in vars(_builtins).items() if k not in _BLOCKED_BUILTINS
             }
 
             # Execute the code in a restricted namespace with timeout protection.
@@ -183,7 +192,7 @@ class ValidatorExec(BaseValidator):
 
             logger.debug(f"Executing code with {EXECUTION_TIMEOUT_SECONDS}s timeout")
             with timeout(EXECUTION_TIMEOUT_SECONDS):
-                exec(code, namespace)
+                exec(code, namespace)  # nosec # noqa: S102
 
             # Run the check function against the implemented function
             entry_point = self.entry_point
@@ -191,7 +200,7 @@ class ValidatorExec(BaseValidator):
 
             if entry_point not in namespace:
                 logger.warning(f'Entry point "{entry_point}" not found in namespace')
-                with open(self._base_sample_dir / "validator_result.json", "w") as f:
+                with open(result_file, "w") as f:
                     json.dump({"passed": False}, f, indent=4)
                 return False, f'Entry point "{entry_point}" not defined'
 
@@ -205,59 +214,61 @@ class ValidatorExec(BaseValidator):
             summary = {
                 "passed": True,
             }
-            with open(self._base_sample_dir / "validator_result.json", "w") as f:
+            with open(result_file, "w") as f:
                 json.dump(summary, f, indent=4)
 
             return True, None
 
         except TimeoutError as e:
-            with open(self._base_sample_dir / "validator_result.json", "w") as f:
+            with open(result_file, "w") as f:
                 json.dump({"passed": False}, f, indent=4)
             logger.error(f"✗ timed out: {e}")
             return False, f"Execution timeout: {e}"
         except AssertionError as e:
-
             summary = {
                 "passed": False,
             }
-            with open(self._base_sample_dir / "validator_result.json", "w") as f:
+            with open(result_file, "w") as f:
                 json.dump(summary, f, indent=4)
 
             logger.error(f"✗ assertion failed: {e}")
             return False, f"Test assertion failed: {e}"
-        except Exception as e:
-
+        except Exception as e:  # noqa: BLE001 - candidate code may raise anything
             summary = {
                 "passed": False,
             }
-            with open(self._base_sample_dir / "validator_result.json", "w") as f:
+            with open(result_file, "w") as f:
                 json.dump(summary, f, indent=4)
-            
+
             # Include full traceback for debugging
             error_detail = traceback.format_exc()
             Path(os.path.join(active_dir, "error_detail.txt")).write_text(error_detail)
             logger.error(f"✗ failed with {type(e).__name__}: {e}")
             logger.debug(f"Full traceback for :\n{error_detail}")
             return False, f"{type(e).__name__}: {e}\n{error_detail}"
-    
+
     @staticmethod
     def get_summary(results_dir, test_folder_pattern="sample_*") -> dict:
         results_dir = Path(results_dir)
         if "*" in test_folder_pattern:
             result_folders = sorted(
-                (x for x in results_dir.rglob(pattern=test_folder_pattern) if x.is_dir()),
+                (
+                    x
+                    for x in results_dir.rglob(pattern=test_folder_pattern)
+                    if x.is_dir()
+                ),
                 key=lambda x: int(x.name.split("_")[-1]),
             )
         else:
             result_folders = [Path(os.path.join(results_dir, test_folder_pattern))]
-        
+
         results = []
         for sample_dir in result_folders:
             result_file = sample_dir / "validator_result.json"
             with open(result_file) as f:
                 sample_summary = json.load(f)
             results.append(1 if sample_summary["passed"] is True else 0)
-        
+
         model_summary = {"passed": sum(results)}
         with open(results_dir / "summary.json", "w") as f:
             json.dump(model_summary, f, indent=4)
