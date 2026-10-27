@@ -23,7 +23,9 @@ import textwrap
 import traceback
 from typing import Any
 
-from codehelm.validator.validator_exec import timeout
+from codehelm.validator.validator_exec import (
+    timeout,
+)  # codehelm must be installed separately
 
 from .code_safety import check_code_safety
 from .types import CodingProblemAndSolution, ExecuteResult

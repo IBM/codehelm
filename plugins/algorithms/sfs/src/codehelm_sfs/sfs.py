@@ -17,7 +17,9 @@ import logging
 import os
 from typing import Any
 
-from codehelm.algorithms.base import DirectSolution
+from codehelm.algorithms.base import (
+    DirectSolution,
+)  # codehelm must be installed separately
 
 from .executor import PyExecutor
 from .model_adapter import ModelAdapter

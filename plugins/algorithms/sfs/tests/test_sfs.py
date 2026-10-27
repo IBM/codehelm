@@ -5,22 +5,23 @@
 
 import json
 
-from codehelm.algorithms.sfs import SFSRepair
-from codehelm.algorithms.sfs.code_safety import check_code_safety
-from codehelm.algorithms.sfs.executor import PyExecutor
-from codehelm.algorithms.sfs.model_adapter import ModelAdapter
-from codehelm.algorithms.sfs.parse import (
+from codehelm_sfs import SFSRepair
+from codehelm_sfs.code_safety import check_code_safety
+from codehelm_sfs.executor import PyExecutor
+from codehelm_sfs.model_adapter import ModelAdapter
+from codehelm_sfs.parse import (
     parse_code_block,
     parse_improvement_ideas,
     parse_tests,
 )
-from codehelm.algorithms.sfs.prompts_python import PyGenerator
-from codehelm.algorithms.sfs.search import Graph
-from codehelm.algorithms.sfs.synthesis import SynthesisSolver
-from codehelm.algorithms.sfs.types import (
+from codehelm_sfs.prompts_python import PyGenerator
+from codehelm_sfs.search import Graph
+from codehelm_sfs.synthesis import SynthesisSolver
+from codehelm_sfs.types import (
     CodingProblem,
     CodingProblemAndSolution,
 )
+
 from codehelm.orchestration.base import BaseRunner
 
 

@@ -17,8 +17,8 @@ import os
 from pathlib import Path
 
 import yaml
+from codehelm_sfs import SFSRepair
 
-from codehelm.algorithms.sfs import SFSRepair
 from codehelm.orchestration.base import BaseRunner
 from codehelm.utils.utils import resolve_env_vars, resolve_folder_savedir, urlopen
 from codehelm.validator.validator_exec import ValidatorExec
