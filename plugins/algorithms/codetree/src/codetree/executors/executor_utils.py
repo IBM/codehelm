@@ -1,0 +1,48 @@
+# Copyright IBM Corp. 2026 - 2026
+# SPDX-License-Identifier: Apache-2.0
+# Derived from https://github.com/SalesforceAIResearch/CodeTree (Apache-2.0); modified for CodeHelm.
+# Original License below.
+
+# LICENSE HEADER MANAGED BY add-license-header
+#
+# /*
+#  * Copyright (c) 2023, Salesforce, Inc.
+#  * SPDX-License-Identifier: Apache-2
+#  *
+#  * Licensed under the Apache License, Version 2.0 (the "License");
+#  * you may not use this file except in compliance with the License.
+#  * You may obtain a copy of the License at
+#  *
+#  *     http://www.apache.org/licenses/LICENSE-2.0
+#  *
+#  * Unless required by applicable law or agreed to in writing, software
+#  * distributed under the License is distributed on an "AS IS" BASIS,
+#  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  * See the License for the specific language governing permissions and
+#  * limitations under the License.
+#  */
+#
+
+from threading import Thread
+
+
+def function_with_timeout(func, args, timeout):
+    result_container = []
+    exc_container = []
+
+    def wrapper():
+        try:
+            result_container.append(func(*args))
+        except BaseException as e:
+            exc_container.append(e)
+
+    thread = Thread(target=wrapper, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+
+    if thread.is_alive():
+        raise TimeoutError()
+    if exc_container:
+        raise exc_container[0]
+    return result_container[0]
+
