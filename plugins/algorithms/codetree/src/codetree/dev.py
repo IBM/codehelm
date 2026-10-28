@@ -1,6 +1,7 @@
 import os
 import yaml
 
+from results_summary import summarize_results
 from codehelm.orchestration.base import BaseRunner
 from codehelm.utils.utils import resolve_env_vars, resolve_folder_savedir
 from codehelm.validator.validator_exec import ValidatorExec
@@ -31,5 +32,6 @@ def main():
     
     runner.parse_data(dataset=config['dataset'],
                       num_samples=config["num_samples"])
+    summarize_results(results_dir)
 
 main()

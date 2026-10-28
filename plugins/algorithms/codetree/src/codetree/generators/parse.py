@@ -64,15 +64,6 @@ def combine_function(docstring: str, implementation: str) -> str:
     impl_lines = docstring + "\n".join(impl_lines[func_def_line+1:])
     return impl_lines
 
-def parse_multiple_code_block(string: str, lang: str) -> Optional[str]:
-    list_of_code = []
-    for code_pattern in [fr"```{lang}\n(.*?)\n```", r"```\n(.*?)\n```"]:
-        if re.search(code_pattern, string, re.DOTALL):
-            matches = re.finditer(code_pattern, string, re.DOTALL)
-            for match in matches:
-                list_of_code.append(match.group(1))
-            return list_of_code
-    return parse_first_func(string, lang)
 
 
 def parse_first_func(code: str, lang: str) -> Optional[str]:
