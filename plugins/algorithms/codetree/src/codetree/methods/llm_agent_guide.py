@@ -36,11 +36,20 @@ sys.set_int_max_str_digits(100000)  # Increase the limit to 10000 digits
 
 ADD_HINT = "To solve the problem, you can refer the hint given by an expert, and complete the details by analyzing it first.\nHint:"
 
-def eval_node(prompt, node:Node, gen, model, max_depth=3):
+def eval_node(prompt, node:Node, gen, model, max_depth=3, keep_failing_roots=False):
     """
     The evaluation shows not fully correct, decide whether to go on.
 
     Returns (go_on, value, analysis, reason); ``reason`` says which rule decided, for the search log.
+
+    A node is dropped when it is no better than its parent. A root (first attempt) has no parent,
+    so it is compared with an artificial parent value of 0. A root that failed every visible test and
+    was scored 0 (typically code that crashes, e.g. a TypeError from a wrong API call) therefore
+    ties with that 0 and is dropped at depth 1: it never gets reflections or a debugging attempt,
+    and the search can end after a few tries with no nodes left. This is how the original CodeTree
+    behaves (``keep_failing_roots=False``). With ``keep_failing_roots=True`` such a root is expanded
+    anyway so the debugger gets a chance to fix it; only roots are exempt, deeper nodes that make no
+    progress over their real parent are still dropped.
     """
     if node.parent is None: parent_value=0
     else: parent_value =  node.parent.value
@@ -48,9 +57,12 @@ def eval_node(prompt, node:Node, gen, model, max_depth=3):
     agent_reward, analysis = gen.agent_eval(prompt, model, prev_func_impl=node.solution, task="tests",
                                   feedback=node.test_feedback.split("[additional review]:")[0].strip())
     node.value += float(agent_reward) / 15
-    if node.value < parent_value: return False, node.value, "", "value_below_parent"
-    elif node.value == parent_value and node.depth > agent_reward: return False, node.value, "", "value_equals_parent_low_reward"
-    return True, node.value, analysis, "expanded"
+    if node.value < parent_value: pruned_by = "value_below_parent"
+    elif node.value == parent_value and node.depth > agent_reward: pruned_by = "value_equals_parent_low_reward"
+    else: return True, node.value, analysis, "expanded"
+    if keep_failing_roots and node.parent is None:
+        return True, node.value, analysis, "kept_failing_root"
+    return False, node.value, "", pruned_by
 
 def step_verify(gen, exe, item, solution, model):
     """
@@ -75,21 +87,31 @@ def gen_test_eval(exe, solution, test_cases, prev=""):
     return is_passing, feedback, reward
 
 VISIBLE_TEST_MODES = ("dataset", "generated", "dataset+generated")
+PRUNE_RULES = ("original", "keep_failing_roots")
 
 
 class AgentGuide:
-    def __init__(self, visible_tests: str = "dataset", max_generated_tests: int = 12) -> None:
+    def __init__(self, visible_tests: str = "dataset", max_generated_tests: int = 12,
+                 prune_rule: str = "original") -> None:
         """
         visible_tests controls which tests drive the tree search (the hidden test is always the
         dataset test, applied by the validator):
           - "dataset":           the dataset test is also the visible test (oracle feedback).
           - "generated":         only tests produced by PyGenerator.internal_tests (no leakage).
           - "dataset+generated": both of the above.
+
+        prune_rule controls what happens to a first attempt that fails every visible test and is
+        scored 0 by the evaluator (see ``eval_node`` for the details):
+          - "original":           it is dropped, so the debugger never runs (original CodeTree).
+          - "keep_failing_roots": it is expanded with reflections so the debugger can fix it.
         """
         if visible_tests not in VISIBLE_TEST_MODES:
             raise ValueError(f"visible_tests must be one of {VISIBLE_TEST_MODES}, got {visible_tests!r}")
+        if prune_rule not in PRUNE_RULES:
+            raise ValueError(f"prune_rule must be one of {PRUNE_RULES}, got {prune_rule!r}")
         self.visible_tests = visible_tests
         self.max_generated_tests = max_generated_tests
+        self.prune_rule = prune_rule
         self.requires_model = True
         self._model = None
         self.exe = PyExecutor()
@@ -241,7 +263,10 @@ class AgentGuide:
             else:
                 # Didn't pass visible tests; ask the evaluator whether to continue.
                 candidate_solution = cur_solution
-                go_on, values, analysis, reason = eval_node(prompt=prompt, node=this_node, gen=gen, model=self.model, max_depth=max_depth)
+                go_on, values, analysis, reason = eval_node(
+                    prompt=prompt, node=this_node, gen=gen, model=self.model, max_depth=max_depth,
+                    keep_failing_roots=self.prune_rule == "keep_failing_roots",
+                )
                 this_node.value = values
 
             n_children_before = len(this_node.children)
