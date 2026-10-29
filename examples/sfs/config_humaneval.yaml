@@ -1,0 +1,22 @@
+# SFS Synthesis example on Qiskit HumanEval dataset using Ollama
+model:
+  type: codehelm.models.litellm.LiteLLMModel
+  model_config:
+    model_name: "qwen2.5-coder:7b"
+    api_base: "http://localhost:11434/v1"
+    api_key: "ollama"
+    temperature: 0.6
+    max_tokens: 1024
+
+sfs:
+  generator: "qiskit"
+  max_iters: 5
+  num_seeds: 2
+  temperature: 0.6
+  use_problem_tests: true
+
+num_samples: 3
+dataset_url: "https://raw.githubusercontent.com/qiskit-community/qiskit-human-eval/main/dataset/dataset_qiskit_test_human_eval.json"
+result_path: "results_humaneval"
+test_format: "exec"
+verbose: true
