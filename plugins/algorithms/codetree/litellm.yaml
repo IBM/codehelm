@@ -1,0 +1,37 @@
+model:
+  type: codehelm.models.litellm.LiteLLMModel
+  model_config:
+    model_name: "env:MODEL_NAME"
+    type: "codehelm.models.litellm.LiteLLMModel"
+    api_base: "env:API_BASE"
+    api_key: "env:OPENAI_API_KEY"
+    max_tokens: 8192
+num_samples: 10
+dataset: "../../../tests/test_data/dataset_qiskit_test_human_eval_small.json"
+result_path: "litellm-qiskit"
+test_format: "human_eval"
+# Tests driving the CodeTree search (hidden test is always the dataset test):
+#   dataset            - dataset test is also the visible test (oracle feedback)
+#   generated          - LLM-generated tests only (PyGenerator.internal_tests)
+#   dataset+generated  - both
+visible_tests: "dataset"
+# What the search does with a first attempt that fails every visible test and is scored 0 by the
+# evaluator (typically code that crashes, e.g. a TypeError from a wrong API call):
+#   original            - the attempt is dropped. A first attempt has no parent, so it is compared
+#                         with an artificial parent value of 0 and, scoring 0, is no better than it.
+#                         No reflections are made and the debugger never runs, so the search can end
+#                         after a few tries with end_reason 'no_nodes_left' (original CodeTree).
+#   keep_failing_roots  - such an attempt is kept and expanded with reflections so the debugger can
+#                         try to fix it. Only first attempts are exempt; deeper nodes that make no
+#                         progress over their parent are still dropped. Differs from the original.
+prune_rule: "original"
+# Search budget, as in the original CodeTree (these are its defaults; leave unset to use them).
+# Each search records the values it ran with in codetree_stats.json.
+#   max_depth    - deepest tree level (1 = a first attempt, deeper = debugging attempts)
+#   search_width - most strategies, and most reflections per node, kept
+#   max_iters    - most code generations (num_try) per search
+# BaseRunner retries a failed sample up to 3 times, each retry being a new search.
+max_depth: 3
+search_width: 10
+max_iters: 20
+verbose: True
