@@ -25,12 +25,11 @@
 
 from .message_utils import Message, messages_to_str
 import random
-from typing import Union, List, Optional, Callable
+from typing import List, Callable
 PY_STRATEGY = ("You are an AI assistant that provides strategy for Python programmers to code. You will be given a function signature and its docstring by the user. "
              "Your goal is to think of {py_strategy_k} "
              "strategies in English(Not Code) on how to approach this problem and solve it. Describe each strategy with a FEW sentences in a SINGLE Line. List and Number your strategies line by line using \"1. \"; \"2. \"; \"3. \" and so on.")
 Prompt_flexible = "The number of alternatives(either one or multiple) should be determined given this specific case."
-PY_IMPLEMENT = """You are an AI assistant who helps the user write code. The user will give you a function signature and its docstring and also suggest a strategy. You should instruct (in English) the user to implement their strategy, adding details not provided in the strategy. You must give {py_strategy_k} alternatives on how to implement the strategy exactly. Each alternative should be FEW sentences in a SINGLE line. List and number your {py_strategy_k} implementation alternatives using \"1. \", \"2. \"."""
 PY_REFELCTION = ("You are an AI assistant who can reflect on problem-solving solution program. You will be given a task, an incorrect function implementation and feedbacks from executing the code. Your goal is to describe the existing issue(s) and suggest methods on how to improve the code. Rules:\n"
                  "1. From the algorithm and implementation level, there could be multiple methods to fix the error, you should provide {py_strategy_k} alternative reflections using various strategies. If the bug is clouded and ambigious, you can use alternatives as different interpretations, too.\n"
                  "2. Each reflection should briefly describe the issues and bugs, what kind of improvement is needed, then describe how to implement the correction. You are allowed to restate the bug for each reflection if needed. Each reflection should start be complete and self-contained. In other words, if there are more than one bugs, they should be presented in one reflection rather than separately.\n"
@@ -75,16 +74,14 @@ def generic_generate_func_impl(
     prev_func_impl,
     feedback,
     self_reflection,
-    num_comps,
     temperature,
     reflection_chat_instruction: str,
-    reflection_few_shot: str,
     simple_chat_instruction: str,
     code_block_instruction: str,
     parse_code_block: Callable[[str], str],
     add_code_block: Callable[[str], str]
-) -> Union[str, List[str]]:
-    if strategy not in ("reflexion", "simple", "self-repair"):
+) -> str:
+    if strategy not in ("reflexion", "simple"):
         raise ValueError(
             f"Invalid strategy: given `{strategy}` but expected one of `reflexion` or `simple`")
     if strategy == "reflexion" and (prev_func_impl is None or feedback is None or self_reflection is None):
@@ -119,7 +116,7 @@ def generic_generate_func_impl(
             ),
         ]
         print(messages_to_str(messages))
-    else:  # simple / self-repair
+    else:  # simple
         messages = [
             Message(
                 role="system",
@@ -130,77 +127,14 @@ def generic_generate_func_impl(
                 content=func_sig,
             ),
         ]
-    func_bodies = model.generate(prompt=messages, num_comps=num_comps, temperature=temperature, max_tokens=2048*4)
+    func_bodies = model.generate(prompt=messages, temperature=temperature, max_tokens=2048*4)
+    assert isinstance(func_bodies, str)
+    func_body_str = parse_code_block(func_bodies)
+    print_generated_func_body(func_body_str, raw=func_bodies)
+    # If parsing extracted nothing, fall back to the raw response so the
+    # pipeline is not handed an empty string.
+    return func_body_str or func_bodies
 
-    if num_comps == 1:
-        assert isinstance(func_bodies, str)
-        func_body_str = parse_code_block(func_bodies)
-        print_generated_func_body(func_body_str, raw=func_bodies)
-        # If parsing extracted nothing, fall back to the raw response so the
-        # pipeline is not handed an empty string.
-        return func_body_str or func_bodies
-
-    else:
-        try:
-            parsed = [parse_code_block(func_body) for func_body in func_bodies]
-            print_generated_func_body("\n\n".join(p or "" for p in parsed))
-        except Exception:
-            print(func_bodies)
-        return func_bodies
-
-
-def generate_with_accumulated_context(
-    func_sig: str,
-    model,
-    strategy: str,
-    prev_func_impl,
-    accumulated_feedback,
-    accumulated_reflection,
-    num_comps,
-    temperature,
-    reflection_chat_instruction: str,
-    reflection_few_shot: str,
-    simple_chat_instruction: str,
-    code_block_instruction: str,
-    parse_code_block: Callable[[str], str],
-    add_code_block: Callable[[str], str]
-) -> Union[str, List[str]]:
-    if strategy not in ("reflexion", "simple"):
-        raise ValueError(
-            f"Invalid strategy: given `{strategy}` but expected one of `reflexion` or `simple`")
-    if strategy == "reflexion" and (prev_func_impl is None or accumulated_feedback is None or accumulated_reflection is None):
-        raise ValueError(
-            "Invalid arguments: given `strategy=reflexion` but `prev_func_impl`, `feedback`, or `self_reflection` is None")
-
-    if strategy == "reflexion":
-        messages = [
-            Message(role="system", content=f"{reflection_chat_instruction}\n{code_block_instruction}"),
-            Message(role="user", content=reflection_few_shot),
-        ]
-        for impl, feedback, reflection in zip(prev_func_impl, accumulated_feedback, accumulated_reflection):
-            messages.append(Message(role="assistant", content=add_code_block(impl)))
-            messages.append(Message(role="user", content=f"[unit test results from previous impl]:\n{feedback}\n\n[reflection on previous impl]:\n{reflection}"))
-        messages.append(Message(role="user", content=f"[improved impl]:\n{func_sig}"))
-        print_messages(f"{reflection_chat_instruction}\n{code_block_instruction}", reflection_few_shot)
-    else:
-        messages = [
-            Message(role="system", content=f"{simple_chat_instruction}\n{code_block_instruction}"),
-            Message(role="user", content=func_sig),
-        ]
-        print_messages(f"{simple_chat_instruction}\n{code_block_instruction}", func_sig)
-    func_bodies = model.generate(prompt=messages, num_comps=num_comps, temperature=temperature)
-
-    if num_comps == 1:
-        assert isinstance(func_bodies, str)
-        func_body_str = parse_code_block(func_bodies)
-        print_generated_func_body(func_body_str, raw=func_bodies)
-        return func_body_str or func_bodies
-
-    else:
-        parsed = [parse_code_block(func_body) for func_body in func_bodies]
-        print_generated_func_body("\n\n".join(p or "" for p in parsed))
-        return func_bodies
-    
 
 def generic_generate_internal_tests(
         func_sig: str,
@@ -210,48 +144,19 @@ def generic_generate_internal_tests(
         test_generation_chat_instruction: str,
         parse_tests: Callable[[str], List[str]],
         is_syntax_valid: Callable[[str], bool],
-        is_react: bool = False
 ) -> List[str]:
     """Generates tests for a function."""
-    if is_react:
-        messages = [
-            Message(role="system", content=test_generation_chat_instruction),
-            Message(role="user", content=f"{test_generation_few_shot}\n\n[func signature]:\n{func_sig}\n\n[think]:"),
-        ]
-        output = model.generate(prompt=messages, max_tokens=2048*4)
-        print(f'React test generation output: {output}')
-    else:
-        messages = [
-            Message(role="system", content=f"{test_generation_chat_instruction}\n\n{test_generation_few_shot}"),
-            Message(role="user", content=f"[func signature]:\n{func_sig}\n\n[unit tests]:"),
-        ]
-        output = model.generate(prompt=messages, max_tokens=2048*4)
+    messages = [
+        Message(role="system", content=f"{test_generation_chat_instruction}\n\n{test_generation_few_shot}"),
+        Message(role="user", content=f"[func signature]:\n{func_sig}\n\n[unit tests]:"),
+    ]
+    output = model.generate(prompt=messages, max_tokens=2048*4)
 
     all_tests = parse_tests(output)  # type: ignore
     valid_tests = [test for test in all_tests if is_syntax_valid(test)]
 
     return sample_n_random(valid_tests, max_num_tests)
 
-
-def generic_generate_self_reflection(
-        func: str,
-        feedback: str,
-        model,
-        self_reflection_chat_instruction: str,
-        add_code_block: Callable[[str], str],
-        self_reflection_few_shot: Optional[str] = None,
-) -> str:
-    if self_reflection_few_shot is not None:
-        user_content = f'{self_reflection_few_shot}\n\n[function impl]:\n{add_code_block(func)}\n\n[unit test results]:\n{feedback}\n\n[self-reflection]:'
-    else:
-        user_content = f'[function impl]:\n{add_code_block(func)}\n\n[unit test results]:\n{feedback}\n\n[self-reflection]:'
-    messages = [
-        Message(role="system", content=self_reflection_chat_instruction),
-        Message(role="user", content=user_content),
-    ]
-    reflection = model.generate(prompt=messages)
-    print(f'Self reflection output: {reflection}')
-    return reflection
 
 def generic_evaluate(
         func_sig: str,
@@ -262,19 +167,8 @@ def generic_evaluate(
         temperature: float = 0.0,
         lang: str = "python",
         exe_feedback: str = "",
-        code_impr=None,
 ):
-    if task == "eval":
-        messages = [
-            Message(role="system", content="Your task is to evaluate a strategy and corresponding implementation for solving a programming problem. You should score from 1 to 5 separately on the following aspects.\n"
-                                           "Correctness: How well can the solution solve the task?\n"
-                                           "Simpleness: How straightforward is the implementation given the difficulty of the problem?\n"
-                                           "Generalizability: How well can this solution cover all cases, even ones not mentioned in examples?\n"
-                                           "Insightfulness: Even when the solution is incorrect, how well does it point out a good direction to solve the problem?\n"
-                                           "Your scores should use the follwing standards. 1: bad, 2: not too bad, 3: fair, 4: good, 5: excellent"),
-            Message(role="user", content=f"Task Description:\n{func_sig}\n\nCode to Evaluate:\n```{lang}\n{code}\n```\nFeedback from executing the code on visible test cases:\n\n{exe_feedback}")
-        ]
-    elif task == "stop":
+    if task == "stop":
         messages = [
             Message(role="system", content=system_stop_simplified),
             Message(role="user", content=f"Task Description:\n{func_sig}\n\nCode to Evaluate:\n```{lang}\n{code}\n```\nFeedback from executing the code on visible test cases:\n```\n{exe_feedback}\n```")
@@ -295,17 +189,8 @@ def generic_evaluate(
             Message(role="user",
                     content=f"Task Description:\n{func_sig}\n\nCode to Evaluate:\n```{lang}\n{code}\n```\nFeedback from executing the code on visible test cases:\n\n{exe_feedback}")
         ]
-    # input: test; goal: score the test output vs. expected output; for CodeContests
-    elif task == "compare":
-        assert code_impr is not None
-        messages = [
-            Message(role="system",
-                    content="Your task is to compare a pair of solutions. The SECOND solution is a bug-fixing attempt to the FIRST solution, which fails to fix the bug. You should evaluate the attempt on whether it should be rollbacked. You should first analyze, and answer 'Rollback.' or 'Keep.'as the last word of your response."),
-            Message(role="user",
-                    content=f"Task Description:\n{func_sig}\n\nCode to Evaluate:\n```{lang}\n{code}\n```\n\n```{lang}\n{code_impr}\n```\nFeedback from executing the code on visible test cases:\n\n{exe_feedback}")
-        ]
     else:
-        raise ValueError("task not in one of eval, tests, stop, compare")
+        raise ValueError("task not in one of tests, stop")
     response = model.generate(prompt=messages, max_tokens=2048*4, temperature=temperature)
     result = parse_response(response)
     return result
@@ -321,7 +206,6 @@ def generic_gen_strategy(
         func_sig: str,
         model,
         parse_strategy: Callable[[str], List[str]],
-        code_combine: Callable,
         task: str = "strategy",
         given_strategy: str = "",
         incorrect_code: str = "",
@@ -338,12 +222,6 @@ def generic_gen_strategy(
             Message(role="system", content=system_prompt),
             Message(role="user", content=func_sig),
         ]
-    elif task == "implementation":
-        system_prompt = PY_IMPLEMENT.replace("{py_strategy_k}", str(num_list))
-        messages = [
-            Message(role="system", content=system_prompt),
-            Message(role="user", content=f"```{lang}\n{func_sig}\n```\nHigh Level Strategy: {given_strategy}"),
-        ]
     elif task == "reflection":
         system_prompt = PY_REFELCTION.replace("{py_strategy_k}", str(num_list))
         if "multiple" in str(num_list):
@@ -356,21 +234,14 @@ def generic_gen_strategy(
             Message(role="user", content=f"[unit test results]:\n{test_feedback}"),
         ]
     else:
-        raise ValueError("Must be in one of strategy/reflection/implementation")
+        raise ValueError("Must be in one of strategy/reflection")
     print(messages_to_str(messages))
     func_bodies = model.generate(prompt=messages, max_tokens=2048*4, temperature=temperature)
     assert isinstance(func_bodies, str)
     func_body_str = parse_strategy(func_bodies)
     print_generated_func_body(func_body_str)
     return func_body_str
-def print_messages(system_message_text: str, user_message_text: str) -> None:
-    print(f"""----------------------- SYSTEM MESSAGE -----------------------)
-{system_message_text}
-----------------------------------------------
------------------------ USER MESSAGE -----------------------
-{user_message_text}
-----------------------------------------------
-""", flush=True)
+
 
 def print_generated_func_body(func_body_str: str, raw: str = "") -> None:
     print(f"""--------------------- GENERATED FUNC BODY ---------------------

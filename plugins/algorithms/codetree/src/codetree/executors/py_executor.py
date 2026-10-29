@@ -163,13 +163,3 @@ def get_call_str(assert_statement: str) -> str:
         call_str = assert_node.test  # type: ignore
     return astunparse.unparse(call_str).strip()
 
-
-if __name__ == "__main__":
-    func1 = """
-def add(a, b):
-    return a + b
-"""
-    func = "def add(a, b):\n    while True:\n        x = 1\n    return a + b"
-    tests = ["assert add(1, 2) == 3", "assert add(2, 2) == 3"]
-    print(func)
-    print(PyExecutor().execute(func, tests, timeout=1))

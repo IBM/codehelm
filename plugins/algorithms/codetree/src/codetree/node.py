@@ -23,8 +23,6 @@
 #  */
 #
 
-import math
-
 
 class Node:
     """Search tree node shared by all search strategies."""
@@ -41,34 +39,9 @@ class Node:
         self.parent = parent
         self.children: list["Node"] = []
         self.value: float = 0
-        self.visits: int = 0
-        self.context: str = ""
         self.depth = depth
         self.reflection = reflection
         self.test_feedback: str = ""
         self.strategy = strategy
         self.pass_visible: bool = False
 
-    def uct(self, exploration_weight: float = 1.0) -> float:
-        if self.visits == 0:
-            return self.value
-        return (self.value / self.visits) + exploration_weight * math.sqrt(
-            math.log(self.parent.visits) / self.visits
-        )
-
-    def best_child(self) -> "Node | None":
-        if not self.children:
-            return None
-        return max(self.children, key=lambda child: child.uct())
-
-    def best_child_value(self) -> "Node | None":
-        if not self.children:
-            return None
-        return max(self.children, key=lambda child: child.value)
-
-    def sort_children_by_value(self, reverse: bool = False) -> None:
-        self.children.sort(key=lambda x: x.value, reverse=reverse)
-
-    def update(self, reward: float) -> None:
-        self.visits += 1
-        self.value += reward

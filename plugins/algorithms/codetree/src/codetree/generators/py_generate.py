@@ -23,31 +23,19 @@
 #  */
 #
 
-from .generator_types import Generator
-from .generator_utils import generic_generate_func_impl, generic_generate_internal_tests, generic_generate_self_reflection, generic_gen_strategy, generic_evaluate
-from typing import Optional, List, Union
+from .generator_utils import generic_generate_func_impl, generic_generate_internal_tests, generic_gen_strategy, generic_evaluate
+from typing import Optional, List
 import ast
 import re
-from .parse import parse_code_block, add_code_block, combine_function
+from .parse import parse_code_block, add_code_block
 
 
 USE_PYTHON_CODEBLOCK_INSTRUCTION = "Use a Python code block to write your response. For example:\n```python\nprint('Hello world!')\n```"
 PY_SIMPLE_CHAT_INSTRUCTION = "You are an AI that only responds with python code, NOT ENGLISH. You will be given a function signature and its docstring by the user. Write your full implementation (restate the function signature). Don't include test cases or printing statements in the code block."
 PY_REFLEXION_CHAT_INSTRUCTION = "You are an AI Python assistant. You will be given your past function implementation, a series of unit tests, and a hint to change the implementation appropriately. Write your full implementation (restate the function signature)."
-PY_SELF_REFLECTION_CHAT_INSTRUCTION = "You are a Python programming assistant. You will be given a function implementation and a series of unit tests. Your goal is to write a few sentences to explain why your implementation is wrong as indicated by the tests. You will need this as a hint when you try again later. Only provide the few sentence description in your answer, not the implementation."
 PY_TEST_GENERATION_CHAT_INSTRUCTION = """You are an AI coding assistant that can write unique, diverse, and intuitive unit tests for functions given the signature and docstring."""
 
-class PyGenerator(Generator):
-    def self_reflection(self, func: str, feedback: str, model) -> str:
-        return generic_generate_self_reflection(
-            func=func,
-            feedback=feedback,
-            model=model,
-            self_reflection_chat_instruction=PY_SELF_REFLECTION_CHAT_INSTRUCTION,
-            add_code_block=lambda x: add_code_block(x, "python"),
-            self_reflection_few_shot=PY_SELF_REFLECTION_CHAT_INSTRUCTION
-        )
-
+class PyGenerator:
     def func_impl(
         self,
         func_sig: str,
@@ -56,9 +44,8 @@ class PyGenerator(Generator):
         prev_func_impl: Optional[str] = None,
         feedback: Optional[str] = None,
         self_reflection: Optional[str] = None,
-        num_comps: int = 1,
         temperature: float = 0.8,
-    ) -> Union[str, List[str]]:
+    ) -> str:
         return generic_generate_func_impl(
             func_sig=func_sig,
             model=model,
@@ -66,10 +53,8 @@ class PyGenerator(Generator):
             prev_func_impl=prev_func_impl,
             feedback=feedback,
             self_reflection=self_reflection,
-            num_comps=num_comps,
             temperature=temperature,
             reflection_chat_instruction=PY_REFLEXION_CHAT_INSTRUCTION,
-            reflection_few_shot=PY_REFLEXION_CHAT_INSTRUCTION,
             simple_chat_instruction=PY_SIMPLE_CHAT_INSTRUCTION,
             code_block_instruction=USE_PYTHON_CODEBLOCK_INSTRUCTION,
             parse_code_block=lambda x: parse_code_block(x, "python"),
@@ -122,7 +107,6 @@ class PyGenerator(Generator):
             func_sig=func_sig,
             model=model,
             parse_strategy=parse_strategy,
-            code_combine=combine_function,
             task=task,
             incorrect_code=prev_func_impl,
             test_feedback=feedback,
@@ -170,7 +154,6 @@ class PyGenerator(Generator):
             code=prev_func_impl,
             exe_feedback=feedback,
             lang="python",
-            code_impr=None
         )
 
 def py_is_syntax_valid(code: str) -> bool:
