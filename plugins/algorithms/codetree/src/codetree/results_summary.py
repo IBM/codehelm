@@ -8,7 +8,8 @@ Two files per ``sample_<n>`` directory are joined:
 * ``validator_result.json`` - written by the validator; says whether the final answer passed the
   hidden test (this is the accuracy, the same number the original CodeTree reports as ``acc``).
 * ``codetree_stats.json`` - written by ``AgentGuide.repair``; one entry per tree search ("round")
-  with ``num_try``, ``max_iters``, ``exhausted``, ``passed_visible`` and ``weak_solved``.
+  with ``num_try``, the search budget it ran with (``max_depth``, ``search_width``, ``max_iters``),
+  ``exhausted``, ``passed_visible``, ``weak_solved``, ``end_reason`` and ``trace``.
   A sample that passed on the first zero-shot attempt never reaches ``repair`` and has no such file.
 """
 

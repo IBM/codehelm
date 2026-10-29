@@ -32,7 +32,7 @@ from codetree.generators.py_generate import PyGenerator
 from codetree.node import Node
 from codetree.results_summary import STATS_FILE
 
-sys.set_int_max_str_digits(100000)  # Increase the limit to 10000 digits
+sys.set_int_max_str_digits(100000)  # raise Python's int<->str conversion limit (default 4300 digits)
 
 ADD_HINT = "To solve the problem, you can refer the hint given by an expert, and complete the details by analyzing it first.\nHint:"
 
@@ -92,7 +92,8 @@ PRUNE_RULES = ("original", "keep_failing_roots")
 
 class AgentGuide:
     def __init__(self, visible_tests: str = "dataset", max_generated_tests: int = 12,
-                 prune_rule: str = "original") -> None:
+                 prune_rule: str = "original", max_depth: int = 3, search_width: int = 10,
+                 max_iters: int = 20) -> None:
         """
         visible_tests controls which tests drive the tree search (the hidden test is always the
         dataset test, applied by the validator):
@@ -104,14 +105,27 @@ class AgentGuide:
         scored 0 by the evaluator (see ``eval_node`` for the details):
           - "original":           it is dropped, so the debugger never runs (original CodeTree).
           - "keep_failing_roots": it is expanded with reflections so the debugger can fix it.
+
+        Search budget (defaults are those of the original CodeTree; each is recorded in
+        ``codetree_stats.json`` next to the result it produced):
+          - max_depth:    deepest level of the tree; a depth-1 node is a first attempt, deeper nodes
+                          are debugging attempts built on a reflection.
+          - search_width: most strategies (depth 1) and most reflections per node (children) kept.
+          - max_iters:    most code generations (``num_try``) per search before it is stopped.
         """
         if visible_tests not in VISIBLE_TEST_MODES:
             raise ValueError(f"visible_tests must be one of {VISIBLE_TEST_MODES}, got {visible_tests!r}")
         if prune_rule not in PRUNE_RULES:
             raise ValueError(f"prune_rule must be one of {PRUNE_RULES}, got {prune_rule!r}")
+        for name, value in (("max_depth", max_depth), ("search_width", search_width), ("max_iters", max_iters)):
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                raise ValueError(f"{name} must be a positive integer, got {value!r}")
         self.visible_tests = visible_tests
         self.max_generated_tests = max_generated_tests
         self.prune_rule = prune_rule
+        self.max_depth = max_depth
+        self.search_width = search_width
+        self.max_iters = max_iters
         self.requires_model = True
         self._model = None
         self.exe = PyExecutor()
@@ -169,13 +183,16 @@ class AgentGuide:
             self,
             prompt: str,
             failure_info: str = "",
-            verbose: bool = False,
-            max_depth: int = 3,
-            search_width: int = 10,
-            max_iters: int = 20,
+            max_depth: int | None = None,
+            search_width: int | None = None,
+            max_iters: int | None = None,
             **kwargs,
     ):
-        print("max_depth", max_depth, "search_width", search_width)
+        # BaseRunner passes none of these; they default to the values given to the constructor.
+        max_depth = self.max_depth if max_depth is None else max_depth
+        search_width = self.search_width if search_width is None else search_width
+        max_iters = self.max_iters if max_iters is None else max_iters
+        print("max_depth", max_depth, "search_width", search_width, "max_iters", max_iters)
         gen = PyGenerator()
 
         self.item["prompt"] = prompt
@@ -236,29 +253,13 @@ class AgentGuide:
                                     "reason": "accepted", "children": 0})
                 break
 
-            """
-            NB bug in original code snippet. 
-            if is_passing:
-                found_solution = cur_solution
-                break
-
-            elif reward <= 0.99: # didn't pass, need debugging
-                candidate_solution = cur_solution
-                go_on, values, analysis = eval_node(prompt=item["prompt"],node=this_node,gen=gen,model=model,max_depth=max_depth)
-                this_node.value = values
-
-            # Continue on this node
-            # GZ: this is never reached. if is_passing is false, then reward is always under 0.99
-            else: go_on = this_node.pass_visible
-
-            fix below
-            """
-
-
-            # Decide whether to keep expanding this node.
-            # go_on is always assigned here; we only reach this point when is_passing is False.
+            # Decide whether to keep expanding this node (only reached when is_passing is False).
+            # Same two branches as the original CodeTree; they are written as if/else here so that
+            # go_on is always assigned, and each outcome is logged with its reason.
             if reward > 0.99:
-                # Passed visible tests but full stopping criterion not met — still worth exploring children.
+                # Passed every visible test, but the reviewer rejected it (step_verify returns
+                # is_passing=False with reward 1 only in that case): keep expanding. The original's
+                # `go_on = this_node.pass_visible` is always True here, so this is the same outcome.
                 go_on, reason = True, "passed_visible_rejected_by_review"
             else:
                 # Didn't pass visible tests; ask the evaluator whether to continue.
@@ -300,13 +301,13 @@ class AgentGuide:
         if passed_visible: end_reason = "accepted"
         elif self.num_try >= max_iters: end_reason = "max_iters"
         else: end_reason = "no_nodes_left"  # every node was pruned or hit max_depth before max_iters
-        self._record_round(found_solution, max_iters, passed_visible, end_reason)
+        self._record_round(found_solution, max_depth, search_width, max_iters, passed_visible, end_reason)
 
         # The tree search already produced the final answer; hand it to the runner as such
         # (fenced so the validator's code extraction picks it up unambiguously).
         return FinalResponse(f"```python\n{found_solution or ''}\n```")
 
-    def _record_round(self, solution, max_iters, passed_visible, end_reason):
+    def _record_round(self, solution, max_depth, search_width, max_iters, passed_visible, end_reason):
         """Append this search's stats and rewrite ``codetree_stats.json`` (see results_summary.py).
 
         Whether the answer solves the hidden test is left to the validator; only what the search
@@ -319,6 +320,8 @@ class AgentGuide:
         )
         self._rounds.append({
             "num_try": self.num_try,
+            "max_depth": max_depth,
+            "search_width": search_width,
             "max_iters": max_iters,
             "exhausted": self.num_try >= max_iters,
             "passed_visible": passed_visible,

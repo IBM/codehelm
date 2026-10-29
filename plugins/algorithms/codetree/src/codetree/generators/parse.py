@@ -41,8 +41,8 @@ def parse_code_block(string: str, lang: str) -> Optional[str]:
         if match:
             code = match.group(1)
     if code is None:
+        # No code fence in the reply: fall back to the first function found in the text.
         return parse_first_func(string, lang)
-    # Remove unit tests written by itself
     return code
 
 
@@ -70,7 +70,7 @@ def parse_first_func(code: str, lang: str) -> Optional[str]:
     if def_i == -1:
         return ""
 
-    return "\n".join(code_lines[def_i:last_i+1]).rstrip("[/PYTHON]")
+    return "\n".join(code_lines[def_i:last_i+1]).removesuffix("[/PYTHON]")
 
 
 def add_code_block(string: str, lang: str) -> str:
