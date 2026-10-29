@@ -22,17 +22,15 @@
 #  * limitations under the License.
 #  */
 #
+import json
 import os
 import sys
 
 from codehelm.orchestration.base import FinalResponse
-from utils import make_printv, write_jsonl
-from executors import PyExecutor
-from generators.py_generate import PyGenerator
-from typing import List
-
-from collections import Counter
-from node import Node
+from codetree.executors import PyExecutor
+from codetree.generators.py_generate import PyGenerator
+from codetree.node import Node
+from codetree.results_summary import STATS_FILE
 
 sys.set_int_max_str_digits(100000)  # Increase the limit to 10000 digits
 
@@ -41,16 +39,18 @@ ADD_HINT = "To solve the problem, you can refer the hint given by an expert, and
 def eval_node(prompt, node:Node, gen, model, max_depth=3):
     """
     The evaluation shows not fully correct, decide whether to go on.
+
+    Returns (go_on, value, analysis, reason); ``reason`` says which rule decided, for the search log.
     """
     if node.parent is None: parent_value=0
     else: parent_value =  node.parent.value
-    if node.depth >= max_depth: return False, node.value, ""
+    if node.depth >= max_depth: return False, node.value, "", "max_depth"
     agent_reward, analysis = gen.agent_eval(prompt, model, prev_func_impl=node.solution, task="tests",
                                   feedback=node.test_feedback.split("[additional review]:")[0].strip())
     node.value += float(agent_reward) / 15
-    if node.value < parent_value: return False, node.value, ""
-    elif node.value == parent_value and node.depth > agent_reward: return False, node.value, ""
-    return True, node.value, analysis
+    if node.value < parent_value: return False, node.value, "", "value_below_parent"
+    elif node.value == parent_value and node.depth > agent_reward: return False, node.value, "", "value_equals_parent_low_reward"
+    return True, node.value, analysis, "expanded"
 
 def step_verify(gen, exe, item, solution, model):
     """
@@ -92,11 +92,10 @@ class AgentGuide:
         self.max_generated_tests = max_generated_tests
         self.requires_model = True
         self._model = None
-        self.num_success = 0
-        self.weak_success = 0
-        self.sad_case, self.debug_thoroughed_case = 0, 0
         self.exe = PyExecutor()
-        self.passed_at_sample = []
+        self._sample_dir = None
+        self._rounds = []
+        self._trace = []
 
     @property
     def model(self):
@@ -108,6 +107,8 @@ class AgentGuide:
 
     def setup(self, sample_dir, **kwargs):
         self._attempt = 0
+        self._sample_dir = sample_dir
+        self._rounds = []
         self.item = kwargs.get("item") or {}
         test = kwargs.get("test")
         entry_point = kwargs.get("entry_point")
@@ -118,12 +119,16 @@ class AgentGuide:
             # Mirror ValidatorExec: code-stub prompts (imports + signature) are prepended to the code.
             if prompt.lstrip().startswith(("from ", "import ", "def ")):
                 self.item.setdefault("prev", prompt)
+            # Qiskit HumanEval defines check(candidate); QuantumKatas define test_<entry_point>().
+            # The test must be *called* to run anything, so the runner line is appended.
+            runner = f"check({entry_point})" if "def check(" in test else f"test_{entry_point}()"
+            runnable_test = f"{test}\n{runner}"
+            # No separate weaker benchmark exists for this data: it is the dataset test itself.
+            self.item.setdefault("weaker_test", runnable_test)
             if not self.item.get("given_tests"):
                 given_tests = []
                 if "dataset" in self.visible_tests:
-                    # Qiskit HumanEval defines check(candidate); QuantumKatas define test_<entry_point>().
-                    runner = f"check({entry_point})" if "def check(" in test else f"test_{entry_point}()"
-                    given_tests.append(f"{test}\n{runner}")
+                    given_tests.append(runnable_test)
                 if "generated" in self.visible_tests:
                     given_tests.extend(
                         PyGenerator().internal_tests(prompt, self.model, max_num_tests=self.max_generated_tests)
@@ -131,7 +136,6 @@ class AgentGuide:
                 self.item["given_tests"] = given_tests
         self.item.setdefault("prev", "")
         self.item.setdefault("given_tests", [])
-        self.item.setdefault("weaker_test", self.item.get("test", ""))
         self.item["given_tests"] = [test for test in self.item["given_tests"] if 'assert False' not in test]
         if not self.item["given_tests"]:
             raise ValueError(
@@ -157,8 +161,9 @@ class AgentGuide:
         hints = gen.strategy(prompt, self.model, num_strategy="multiple", task="strategy", temperature=0)
         if len(hints) > search_width: hints = hints[:search_width] # width cut
         stack = []
-        is_passing, is_solved, is_weaker_solved = False, False, False
+        is_passing = False
         self.num_try = 0
+        self._trace = []  # one entry per node visited, so a short search can be explained afterwards
         for hint in reversed(hints):
             new_node = Node("", strategy=hint, depth=1)
             stack.append(new_node) # initial placeholders for new nodes
@@ -205,6 +210,8 @@ class AgentGuide:
                 this_node.value += 5/15 # reward for passing all visible
             if is_passing:
                 found_solution = cur_solution
+                self._trace.append({"depth": this_node.depth, "reward": reward, "go_on": False,
+                                    "reason": "accepted", "children": 0})
                 break
 
             """
@@ -230,13 +237,14 @@ class AgentGuide:
             # go_on is always assigned here; we only reach this point when is_passing is False.
             if reward > 0.99:
                 # Passed visible tests but full stopping criterion not met — still worth exploring children.
-                go_on = True
+                go_on, reason = True, "passed_visible_rejected_by_review"
             else:
                 # Didn't pass visible tests; ask the evaluator whether to continue.
                 candidate_solution = cur_solution
-                go_on, values, analysis = eval_node(prompt=prompt, node=this_node, gen=gen, model=self.model, max_depth=max_depth)
+                go_on, values, analysis, reason = eval_node(prompt=prompt, node=this_node, gen=gen, model=self.model, max_depth=max_depth)
                 this_node.value = values
 
+            n_children_before = len(this_node.children)
             if go_on:
                 # Thinker Agent, init startegies for potential agents
                 reflections = gen.strategy(prompt,
@@ -253,49 +261,46 @@ class AgentGuide:
                     new_node.test_feedback = this_node.test_feedback
                     this_node.children.append(new_node) # children in a reverse order
             stack.extend(this_node.children)
-        if self.num_try >= max_iters: self.debug_thoroughed_case += 1
-        # Verify that values are actually fair for all nodes.
-
+            self._trace.append({
+                "depth": this_node.depth,
+                "reward": reward,
+                "go_on": go_on,
+                "reason": reason,
+                "children": len(this_node.children) - n_children_before,
+            })
+        # found_solution is only set when the search accepted an answer (visible tests + review);
+        # otherwise fall back to the first candidate that was generated.
+        passed_visible = found_solution is not None
         if found_solution is None: found_solution = candidate_solution
+        if passed_visible: end_reason = "accepted"
+        elif self.num_try >= max_iters: end_reason = "max_iters"
+        else: end_reason = "no_nodes_left"  # every node was pruned or hit max_depth before max_iters
+        self._record_round(found_solution, max_iters, passed_visible, end_reason)
 
         # The tree search already produced the final answer; hand it to the runner as such
         # (fenced so the validator's code extraction picks it up unambiguously).
         return FinalResponse(f"```python\n{found_solution or ''}\n```")
 
-    def score(self, found_solution, idx, item, log_dir, log_path):
-        print_v = make_printv(True)
+    def _record_round(self, solution, max_iters, passed_visible, end_reason):
+        """Append this search's stats and rewrite ``codetree_stats.json`` (see results_summary.py).
 
-        is_solved = self.exe.evaluate(
-            item["entry_point"], found_solution, item["test"], timeout=10, prev=item["prev"])  # early exit
-        if "weaker_test" in item.keys():
-            is_weaker_solved = self.exe.evaluate(
-                item["entry_point"], found_solution, item["weaker_test"], timeout=10, prev=item["prev"])
-        if is_solved:
-            self.num_success += int(is_solved)
-            self.passed_at_sample.append(self.num_try)
-        else:
-            self.sad_case += 1
-            print("Sad, Pass but not solve")
-
-        if is_weaker_solved:
-            self.weak_success += int(is_weaker_solved)
-        item["acc"] = round(self.num_success / (idx + 1), 3)
-        item["weak_acc"] = round(self.weak_success / (idx + 1), 3)
-
-        # Per-sample artefacts
-        if log_dir is not None:
-            sample_id = str(item.get("task_id", idx)).replace("/", "_")
-            sample_dir = os.path.join(log_dir, f"sample_{sample_id}")
-            os.makedirs(sample_dir, exist_ok=True)
-            # 1. Final generated code
-            with open(os.path.join(sample_dir, "solution.py"), "w") as f:
-                f.write(found_solution or "")
-            # 2. Test output (feedback from the last step_verify call)
-            with open(os.path.join(sample_dir, "test_output.txt"), "w") as f:
-                solved_line = f"is_solved: {is_solved}  |  is_weaker_solved: {is_weaker_solved}\n\n"
-                f.write(solved_line + (this_node.test_feedback if 'this_node' in dir() else ""))
-
-        write_jsonl(log_path, [item], append=True)
-        print_v(
-            f'completed {idx + 1}/{1}: acc = {round(self.num_success / (idx + 1), 3)}, weak_acc={item["weak_acc"]}, pass no solve: {self.sad_case}, exhaust: {self.debug_thoroughed_case}')
-    
+        Whether the answer solves the hidden test is left to the validator; only what the search
+        itself knows is recorded here. ``end_reason`` is one of ``accepted``, ``max_iters`` or
+        ``no_nodes_left``; ``trace`` lists every node visited with the rule that decided its fate.
+        """
+        weak_solved = self.exe.evaluate(
+            self.item.get("entry_point", ""), solution or "", self.item.get("weaker_test", ""),
+            timeout=60, prev=self.item["prev"],
+        )
+        self._rounds.append({
+            "num_try": self.num_try,
+            "max_iters": max_iters,
+            "exhausted": self.num_try >= max_iters,
+            "passed_visible": passed_visible,
+            "weak_solved": weak_solved,
+            "end_reason": end_reason,
+            "trace": self._trace,
+        })
+        os.makedirs(self._sample_dir, exist_ok=True)
+        with open(os.path.join(self._sample_dir, STATS_FILE), "w") as f:
+            json.dump({"rounds": self._rounds}, f, indent=4)
