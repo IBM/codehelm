@@ -520,6 +520,25 @@ def test_end_to_end_no_repair_when_first_answer_passes(
     assert model.calls == ["plain"]
 
 
+def test_parse_data_clamps_num_samples_to_dataset_len(tmp_path, sample, fake_model, restore_build_model):
+    from conftest import GOOD_CODE, fenced
+
+    dataset = tmp_path / "data.json"
+    dataset.write_text(json.dumps([sample]))
+    results_dir = tmp_path / "results"
+    BaseRunner._build_model = staticmethod(lambda cfg: fake_model(first_answer=fenced(GOOD_CODE)))
+    runner = BaseRunner(
+        {"model": {}, "test_format": "human_eval"},
+        results_dir=str(results_dir),
+        validator=ValidatorExec(),
+        repair_strategy=AgentGuide(),
+    )
+    # Request 10 samples on a 1-sample dataset; should clamp and not fail
+    runner.parse_data(str(dataset), num_samples=10)
+    assert (results_dir / "sample_0" / "validator_result.json").exists()
+    assert not (results_dir / "sample_1").exists()
+
+
 def test_setup_quantumkatas_runner_format():
     guide = AgentGuide(visible_tests="dataset")
     guide.setup(
