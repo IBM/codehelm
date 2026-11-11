@@ -75,7 +75,7 @@ class BaseRunner:
             # plain .json file — load the full array and iterate over it
             with open(dataset) as f:
                 data = json.load(f)
-            if num_samples is None:
+            if num_samples is None or num_samples > len(data):
                 num_samples = len(data)
 
             reader_ctx = iter(data)
