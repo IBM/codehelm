@@ -518,3 +518,67 @@ def test_end_to_end_no_repair_when_first_answer_passes(
     result = _run(tmp_path, sample, model, AgentGuide())
     assert result == {"passed": True}
     assert model.calls == ["plain"]
+
+
+def test_setup_quantumkatas_runner_format():
+    guide = AgentGuide(visible_tests="dataset")
+    guide.setup(
+        "unused",
+        test="def test_adder():\n    assert adder(1, 2) == 3",
+        entry_point="adder",
+        prompt="Write adder() function",
+    )
+    assert len(guide.item["given_tests"]) == 1
+    assert guide.item["given_tests"][0].endswith("test_adder()")
+    assert guide.item["prev"] == ""
+
+
+def test_setup_with_code_stub_prompt():
+    guide = AgentGuide(visible_tests="dataset")
+    guide.setup(
+        "unused",
+        test="def test_fn():\n    pass",
+        entry_point="fn",
+        prompt="def fn():\n    \"\"\"doc\"\"\"",
+    )
+    assert guide.item["prev"] == "def fn():\n    \"\"\"doc\"\"\""
+
+
+def test_agent_guide_base_model_property(fake_model):
+    guide = AgentGuide()
+    model = fake_model()
+    guide.base_model = model
+    assert guide.model is model
+
+
+def test_gen_test_eval_partial_reward():
+    from codetree.executors.py_executor import PyExecutor
+
+    exe = PyExecutor()
+    passing, feedback, reward = gen_test_eval(
+        exe,
+        solution="def add(a, b): return a + b",
+        test_cases=["assert add(1, 1) == 2", "assert add(1, 1) == 3"],
+    )
+    assert passing is False
+    assert reward == 0.5
+
+
+def test_step_verify_rejection(fake_model):
+    from codetree.executors.py_executor import PyExecutor
+    from codetree.generators.py_generate import PyGenerator
+    from codetree.methods.llm_agent_guide import step_verify
+
+    model = fake_model()
+    model.review = "False"
+    item = {
+        "prompt": "def add(a, b):",
+        "given_tests": ["assert add(1, 1) == 2"],
+        "prev": "",
+    }
+    passing, feedback, reward = step_verify(
+        PyGenerator(), PyExecutor(), item, "def add(a, b): return a + b", model
+    )
+    assert passing is False
+    assert reward == 1
+    assert "[additional review]:" in feedback
