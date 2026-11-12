@@ -7,7 +7,7 @@ model:
     api_key: "env:OPENAI_API_KEY"
     max_tokens: 8192
 num_samples: 10
-dataset: "dataset_qiskit_test_human_eval_small.json"
+dataset: "../../../tests/test_data/dataset_qiskit_test_human_eval_small.json"
 result_path: "litellm-qiskit"
 test_format: "human_eval"
 # Tests driving the CodeTree search (hidden test is always the dataset test):
