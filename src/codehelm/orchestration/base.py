@@ -6,10 +6,18 @@
 import importlib
 import json
 import os
+from dataclasses import dataclass
 
 import jsonlines
 import yaml
 from tqdm import tqdm
+
+
+@dataclass
+class FinalResponse:
+    """Returned by a repair strategy that already produced its answer (e.g. via its own
+    search). The runner validates ``text`` directly instead of sending it back to the model."""
+    text: str
 
 
 class BaseRunner:
@@ -67,7 +75,7 @@ class BaseRunner:
             # plain .json file — load the full array and iterate over it
             with open(dataset) as f:
                 data = json.load(f)
-            if num_samples is None:
+            if num_samples is None or num_samples > len(data):
                 num_samples = len(data)
 
             reader_ctx = iter(data)
@@ -107,6 +115,7 @@ class BaseRunner:
                     sample_dir=sample_dir,
                     test=test,
                     entry_point=entry_point,
+                    prompt=prompt,
                 )
 
             if self.repair_strategy and getattr(
@@ -137,6 +146,12 @@ class BaseRunner:
                             else (failure_info or "")
                         )
                         repair_result = self.repair_strategy.repair(prompt, failure_str)
+                        # A strategy that already has its answer: validate it, no model call.
+                        if isinstance(repair_result, FinalResponse):
+                            passed, failure_info = self.validator.validate(
+                                repair_result.text
+                            )
+                            continue
                         if hasattr(repair_result, "code"):
                             # DirectSolution is already final code — validate directly.
                             self.validator.validate(repair_result.code)
